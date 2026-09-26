@@ -110,6 +110,20 @@ need care are defined explicitly in `KEYWORD_PATTERNS`:
   **Loosen this one first if the result set dries up.**
 - `integration`, `automation`, `workflow`, `webhook` also match their Russian
   stems, because hh.ru postings are written in Russian.
+- `integration`, `automation`, `workflow` **on their own only count when the
+  job title reads as a technical/automation role** (title matches
+  `TITLE_TECH_PATTERN`: engineer, developer, architect, automation,
+  integration, implementation, sysadmin). Calibrated against a live
+  RemoteOK + Remotive run on 2026-09-26: unguarded, these three words alone
+  matched HR onboarding, payroll, marketing, an ERP lead role ("M&A
+  integration"), and clinical-ops postings — 26 of 44 initially-kept jobs in
+  that run were noise from exactly this. Every other include term (n8n,
+  webhook, REST API, Stripe, Supabase, Make, Zapier, LLM, OpenAI, prompt) had
+  zero false positives in the same run, so they still count on their own.
+  Known residual case this doesn't catch: a title containing "Engineer" whose
+  description uses "integrating" in a non-technical sense (e.g. "integrating
+  the ecosystem of stakeholders") slips through — keyword filtering can't
+  fully close that gap; the scoring step (Step 5 of the roadmap below) will.
 
 Fail-open rules, matching the spirit of the old Indeed tool:
 
@@ -148,6 +162,7 @@ Symptoms and first moves:
 |---|---|
 | 403 on CONNECT / proxy denial | the environment's network policy blocks the host. Report the host; do not route around it |
 | HTTP 403 from RemoteOK | it rejects clients without a real User-Agent; verify `USER_AGENT` is being sent |
+| `{"errors":[{"type":"forbidden"}]}` from hh.ru with a `ddos-guard` server header, specifically on `/vacancies` while `/areas` still works | hh.ru's own anti-scraping layer is blocking the client's IP range on the search endpoint, not the environment's network policy (confirmed 2026-09-26: this happens even once the host is allowed through the proxy). Do not attempt to route around a site's own anti-bot protection (rotating IPs, spoofing headers, headless-browser rendering). Report it and run hh.ru from a non-datacenter connection instead, or drop it from `--sources` for cloud-environment runs |
 | hh.ru 400 with `captcha_required` | too many anonymous calls too fast; raise the pause in `Fetcher`, rerun later |
 | A single source fails | the tool logs a `WARN` line and continues with the others — a partial run is better than none |
 | `--replay` with no cache | run once without `--replay` first |

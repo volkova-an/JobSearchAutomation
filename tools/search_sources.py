@@ -104,6 +104,23 @@ DEFAULT_EXCLUDE = [
     "SRE", "machine learning", "Data Scientist", "Java", ".NET", "PHP",
 ]
 
+# Calibrated against a live RemoteOK + Remotive run (2026-09-26, ~120 postings).
+# "integration", "automation" and "workflow" are ordinary English business
+# words: on their own they matched HR onboarding, payroll, marketing,
+# ERP-lead ("M&A integration") and clinical-ops postings that have nothing to
+# do with the target role. Every other include term (the branded/technical
+# ones) had zero false positives in that run. So the three generic words only
+# count when the job TITLE itself reads as a technical/automation role — a
+# much stronger signal than nearby words in an arbitrarily long description.
+# See workflows/search_sources.md "Step 3" for the worked examples.
+GENERIC_INCLUDE_TERMS = {"integration", "automation", "workflow"}
+
+TITLE_TECH_PATTERN = re.compile(
+    r"\b(?:engineer|developer|architect|programmer|automation|integration|"
+    r"implementation|sysadmin|system\s+admin)\b",
+    re.IGNORECASE,
+)
+
 # Static, deliberately conservative conversion rates to monthly USD. Only used
 # by the optional --salary-min filter, and only when a posting states a number.
 # Update them when they drift; nothing else in the pipeline depends on them.
@@ -723,6 +740,13 @@ def apply_filters(jobs: list[dict],
 
     Rules, all deliberately fail-open except the explicit ones:
       - keep only jobs where at least one include term matches title+description
+      - a match on a GENERIC_INCLUDE_TERMS word ("integration", "automation",
+        "workflow") only counts when the job title itself reads as a
+        technical/automation role (TITLE_TECH_PATTERN). Those three words are
+        ordinary business English and matched HR, payroll and marketing
+        postings with no technical title at all when left unguarded — see the
+        comment above GENERIC_INCLUDE_TERMS for the evidence. Every other
+        include term is specific enough to count on its own.
       - drop jobs where any stop-word matches (title only, when
         title_only_stopwords is set — a passing mention of Kubernetes in a
         "nice to have" list should not kill an otherwise good integration role)
@@ -731,16 +755,22 @@ def apply_filters(jobs: list[dict],
         state no salary
     """
     kept: list[dict] = []
-    stats = {"no_include": 0, "stopword": 0, "too_old": 0, "low_salary": 0,
-             "stopword_hits": {}, "include_hits": {}}
+    stats = {"no_include": 0, "generic_only": 0, "stopword": 0, "too_old": 0,
+             "low_salary": 0, "stopword_hits": {}, "include_hits": {}}
 
     for job in jobs:
-        haystack = f"{job.get('title', '')}\n{job.get('description', '')}"
-        stop_haystack = job.get("title", "") if title_only_stopwords else haystack
+        title = job.get("title", "")
+        haystack = f"{title}\n{job.get('description', '')}"
+        stop_haystack = title if title_only_stopwords else haystack
 
         hits = match_terms(haystack, include)
         if include and not hits:
             stats["no_include"] += 1
+            continue
+
+        specific_hits = [h for h in hits if h not in GENERIC_INCLUDE_TERMS]
+        if not specific_hits and not TITLE_TECH_PATTERN.search(title):
+            stats["generic_only"] += 1
             continue
 
         blockers = match_terms(stop_haystack, exclude)
@@ -913,7 +943,9 @@ def main() -> int:
           file=sys.stderr)
     print(f"# Collected {len(raw)} -> {len(deduped)} unique ({duplicates} duplicate URLs)",
           file=sys.stderr)
-    print(f"# Dropped: {stats['no_include']} no include-keyword, {stats['stopword']} stop-word, "
+    print(f"# Dropped: {stats['no_include']} no include-keyword, "
+          f"{stats['generic_only']} generic-word-only (non-technical title), "
+          f"{stats['stopword']} stop-word, "
           f"{stats['too_old']} older than --since, {stats['low_salary']} below --salary-min",
           file=sys.stderr)
     if stats["stopword_hits"]:
