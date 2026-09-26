@@ -1,8 +1,5 @@
 # JobSearchAutomation
 
-<p align="center">
-  <img src="assets/Job%20Search%20Automation.jpg" alt="Job Search Automation logo" width="320">
-</p>
 Automatically searches job boards for postings matching your criteria, tailors your resume for each one, and tracks everything in a Google Sheet - on a schedule, while you sleep.
 
 ---
